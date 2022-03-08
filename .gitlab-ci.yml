@@ -1,0 +1,55 @@
+variables:
+  DOCKER_REGISTRY: 302432638310.dkr.ecr.ap-southeast-1.amazonaws.com
+  REMOTE_HOST: 13.229.94.122
+  TAG: r1
+  AWS_DEFAULT_REGION: ap-southeast-1
+  APP_NAME: verdant-sso
+  DOCKER_HOST: tcp://docker:2375
+
+stages:
+  - build
+  - deploy
+
+build:
+  image: 
+    name: amazon/aws-cli
+    entrypoint: [""]
+  services:
+    - docker:dind
+  before_script:
+    - amazon-linux-extras install docker
+    - aws --version
+    - docker --version
+  script:
+    - aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+    - aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+    - aws configure set region $AWS_DEFAULT_REGION
+    - aws ecr get-login-password --region ap-southeast-1 | docker login --username AWS --password-stdin $DOCKER_REGISTRY
+    - docker build . -t $DOCKER_REGISTRY/$APP_NAME:$TAG
+    - docker push $DOCKER_REGISTRY/$APP_NAME:$TAG
+  stage: build
+  only: 
+    - dev
+
+deploy:
+  image: alpine
+  stage: deploy
+  script:
+    - apk add --no-cache rsync openssh
+    - echo "Deploy Phase"
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" >> ~/.ssh/id_dsa
+    - chmod 600 ~/.ssh/id_dsa
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+    - ssh -t ubuntu@$REMOTE_HOST "cd /home/ubuntu/env/verdant;
+      aws ecr get-login-password --region ap-southeast-1 | docker login --username AWS --password-stdin $DOCKER_REGISTRY;
+      docker-compose down; 
+      docker rmi $DOCKER_REGISTRY/$APP_NAME:$TAG; 
+      docker-compose create; 
+      docker-compose up -d; 
+      docker ps; 
+      exit"
+  only:
+    - dev
+  environment:
+    name: development
